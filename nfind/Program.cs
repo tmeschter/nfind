@@ -2,9 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 
 namespace nfind
 {
@@ -15,14 +13,14 @@ namespace nfind
             var showHelp = false;
             var insensitive = false;
             var recurse = false;
-            var directory = Environment.CurrentDirectory;
+            var initialDirectory = Environment.CurrentDirectory;
 
             var options = new Mono.Options.OptionSet
             {
                 { "h|help", "Show help", v => showHelp = v != null },
                 { "i", "Perform a case-insensitive match", v => insensitive = v != null },
                 { "r|recurse", "Recursively search subdirectories", v => recurse = v != null },
-                { "d=|directory=", "Directory to search",  v => directory = v }
+                { "d=|directory=", "Directory to search",  v => initialDirectory = v }
             };
 
             var positionalArgs = options.Parse(args);
@@ -41,18 +39,34 @@ namespace nfind
 
             var patterns = positionalArgs.Skip(1);
 
-            directory = Path.GetFullPath(directory);
-            var searchOptions = recurse ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-            foreach (var pattern in patterns)
+            initialDirectory = Path.GetFullPath(initialDirectory);
+
+            IEnumerable<string> directories = new[] { initialDirectory };
+            if (recurse)
             {
-                foreach (var filePath in Directory.EnumerateFiles(directory, pattern, searchOptions))
+                directories = directories.Concat(Directory.EnumerateDirectories(initialDirectory, "*", SearchOption.AllDirectories));
+            }
+
+            foreach (var directory in directories)
+            {
+                var filePaths = new List<string>();
+                foreach (var pattern in patterns)
                 {
+                    filePaths.AddRange(Directory.EnumerateFiles(directory, pattern));
+                }
+                filePaths.Sort(StringComparer.CurrentCulture);
+
+                foreach (var filePath in filePaths)
+                {
+                    int lineNumber = 1;
                     foreach (var line in File.ReadLines(filePath))
                     {
                         if (regex.IsMatch(line))
                         {
-                            Console.WriteLine($"{filePath}: {line}");
+                            Console.WriteLine($"{filePath}, {lineNumber}: {line}");
                         }
+
+                        lineNumber++;
                     }
                 }
             }
