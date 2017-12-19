@@ -17,7 +17,15 @@ namespace nfind
 
             var options = new Mono.Options.OptionSet
             {
-                { "h|help", "Show help", v => showHelp = v != null },
+                { $"nfind.exe, version {ThisAssembly.AssemblyInformationalVersion}" },
+                { "" },
+                { "Searches text files for strings matching a given regular expression." },
+                { "" },
+                { "Usage:" },
+                { "  nfind [<options>] <regex> <file pattern> [<file pattern> ...]" },
+                { "" },
+                { "Options:" },
+                { "h|help", "Show help and exit", v => showHelp = v != null },
                 { "i", "Perform a case-insensitive match", v => insensitive = v != null },
                 { "r|recurse", "Recursively search subdirectories", v => recurse = v != null },
                 { "d=|directory=", "Directory to search",  v => initialDirectory = v }
@@ -27,7 +35,8 @@ namespace nfind
 
             if (showHelp)
             {
-                throw new NotImplementedException();
+                options.WriteOptionDescriptions(Console.Out);
+                return;
             }
 
             var regexOptions = RegexOptions.Compiled | RegexOptions.Singleline;
