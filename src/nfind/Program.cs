@@ -28,7 +28,10 @@ namespace nfind
                 { "h|?|help", "Show help and exit", v => showHelp = v != null },
                 { "i|insensitive", "Perform a case-insensitive match", v => insensitive = v != null },
                 { "r|recurse", "Recursively search subdirectories", v => recurse = v != null },
-                { "d=|directory=", "Directory to search",  v => initialDirectory = v }
+                { "d=|directory=", "Directory to search",  v => initialDirectory = v },
+                { "" },
+                { "Further Reading:" },
+                { "  https://docs.microsoft.com/en-us/dotnet/standard/base-types/regular-expression-language-quick-reference" }
             };
 
             var positionalArgs = options.Parse(args);
