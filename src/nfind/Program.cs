@@ -25,8 +25,8 @@ namespace nfind
                 { "  nfind [<options>] <regex> <file pattern> [<file pattern> ...]" },
                 { "" },
                 { "Options:" },
-                { "h|help", "Show help and exit", v => showHelp = v != null },
-                { "i", "Perform a case-insensitive match", v => insensitive = v != null },
+                { "h|?|help", "Show help and exit", v => showHelp = v != null },
+                { "i|insensitive", "Perform a case-insensitive match", v => insensitive = v != null },
                 { "r|recurse", "Recursively search subdirectories", v => recurse = v != null },
                 { "d=|directory=", "Directory to search",  v => initialDirectory = v }
             };
