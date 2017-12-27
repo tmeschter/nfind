@@ -73,15 +73,40 @@ namespace nfind
                     int lineNumber = 1;
                     foreach (var line in File.ReadLines(filePath))
                     {
-                        if (regex.IsMatch(line))
-                        {
-                            Console.WriteLine($"{filePath}, {lineNumber}: {line}");
-                        }
+                        var matches = regex.Matches(line);
+                        PrintMatches(filePath, lineNumber, line, matches);
 
                         lineNumber++;
                     }
                 }
             }
+        }
+
+        static void PrintMatches(string filePath, int lineNumber, string line, MatchCollection matches)
+        {
+            if (matches.Count == 0)
+            {
+                return;
+            }
+
+            Console.Write($"{filePath}, {lineNumber}: ");
+
+            int unmatchedStart = 0;
+            for (int i = 0; i < matches.Count; i++)
+            {
+                var match = matches[i];
+
+                Console.Write(line.Substring(unmatchedStart, match.Index - unmatchedStart));
+
+                var foregroundColor = Console.ForegroundColor;
+                Console.ForegroundColor = (int)foregroundColor > 7 ? foregroundColor - 8 : foregroundColor + 8;
+                Console.Write(line.Substring(match.Index, match.Length));
+                Console.ForegroundColor = foregroundColor;
+
+                unmatchedStart = match.Index + match.Length;
+            }
+
+            Console.WriteLine(line.Substring(unmatchedStart));
         }
     }
 }
