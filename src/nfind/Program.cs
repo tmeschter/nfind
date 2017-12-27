@@ -89,7 +89,10 @@ namespace nfind
                 return;
             }
 
+            var foregroundColor = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Yellow;
             Console.Write($"{filePath}, {lineNumber}: ");
+            Console.ForegroundColor = foregroundColor;
 
             int unmatchedStart = 0;
             for (int i = 0; i < matches.Count; i++)
@@ -98,7 +101,6 @@ namespace nfind
 
                 Console.Write(line.Substring(unmatchedStart, match.Index - unmatchedStart));
 
-                var foregroundColor = Console.ForegroundColor;
                 Console.ForegroundColor = (int)foregroundColor > 7 ? foregroundColor - 8 : foregroundColor + 8;
                 Console.Write(line.Substring(match.Index, match.Length));
                 Console.ForegroundColor = foregroundColor;
