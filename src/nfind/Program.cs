@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks.Dataflow;
 
 namespace nfind
 {
@@ -59,6 +60,17 @@ namespace nfind
                 directories = directories.Concat(Directory.EnumerateDirectories(initialDirectory, "*", SearchOption.AllDirectories));
             }
 
+            // Create the Dataflow blocks
+            var fileReaderBlock = GetFileReaderBlock();
+            var matchingBlock = GetMatchBlock(regex);
+            var outputBlock = GetOutputBlock();
+
+            // Link the blocks
+            var linkOptions = new DataflowLinkOptions { PropagateCompletion = true };
+            fileReaderBlock.LinkTo(matchingBlock, linkOptions);
+            matchingBlock.LinkTo(outputBlock, linkOptions);
+
+            // Find the applicable files and pass them to the file reader.
             foreach (var directory in directories)
             {
                 var filePaths = new List<string>();
@@ -70,45 +82,115 @@ namespace nfind
 
                 foreach (var filePath in filePaths)
                 {
-                    int lineNumber = 1;
-                    foreach (var line in File.ReadLines(filePath))
-                    {
-                        var matches = regex.Matches(line);
-                        PrintMatches(filePath, lineNumber, line, matches);
-
-                        lineNumber++;
-                    }
+                    fileReaderBlock.Post(filePath);
                 }
             }
+
+            // Inform the file reader that there will be no more input, and wait for the output
+            // block to finish.
+            fileReaderBlock.Complete();
+            outputBlock.Completion.Wait();
         }
 
-        static void PrintMatches(string filePath, int lineNumber, string line, MatchCollection matches)
+        private static TransformManyBlock<string, MatchingLine> GetFileReaderBlock()
         {
-            if (matches.Count == 0)
+            var dataflowBlockOptions = new ExecutionDataflowBlockOptions
             {
-                return;
+                MaxDegreeOfParallelism = DataflowBlockOptions.Unbounded,
+                NameFormat = "File readering"
+            };
+            return new TransformManyBlock<string, MatchingLine>((Func<string, IEnumerable<MatchingLine>>)GetLines, dataflowBlockOptions);
+        }
+
+        private static IEnumerable<MatchingLine> GetLines(string filePath)
+        {
+            int lineNumber = 1;
+            foreach (var line in File.ReadLines(filePath))
+            {
+                yield return new MatchingLine
+                {
+                    FilePath = filePath,
+                    LineNumber = lineNumber,
+                    Text = line
+                };
+
+                lineNumber++;
             }
+        }
 
-            var foregroundColor = Console.ForegroundColor;
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.Write($"{filePath}, {lineNumber}: ");
-            Console.ForegroundColor = foregroundColor;
-
-            int unmatchedStart = 0;
-            for (int i = 0; i < matches.Count; i++)
+        private static TransformBlock<MatchingLine, MatchingLine> GetMatchBlock(Regex regex)
+        {
+            var dataflowBlockOptions = new ExecutionDataflowBlockOptions
             {
-                var match = matches[i];
+                MaxDegreeOfParallelism = DataflowBlockOptions.Unbounded,
+                NameFormat = "Matching"
+            };
+            return new TransformBlock<MatchingLine, MatchingLine>(line =>
+            {
+                line.Matches = regex.Matches(line.Text)
+                    .Cast<Match>()
+                    .Select(m => new MatchSpan(m.Index, m.Length))
+                    .ToArray();
+                return line;
+            },
+            dataflowBlockOptions);
+        }
 
-                Console.Write(line.Substring(unmatchedStart, match.Index - unmatchedStart));
+        private static ActionBlock<MatchingLine> GetOutputBlock()
+        {
+            var dataflowBlockOptions = new ExecutionDataflowBlockOptions
+            {
+                NameFormat = "Output"
+            };
+            return new ActionBlock<MatchingLine>(m =>
+            {
+                if (m.Matches.Length == 0)
+                {
+                    return;
+                }
 
-                Console.ForegroundColor = (int)foregroundColor > 7 ? foregroundColor - 8 : foregroundColor + 8;
-                Console.Write(line.Substring(match.Index, match.Length));
+                var foregroundColor = Console.ForegroundColor;
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.Write($"{m.FilePath}, {m.LineNumber}: ");
                 Console.ForegroundColor = foregroundColor;
 
-                unmatchedStart = match.Index + match.Length;
-            }
+                int unmatchedStart = 0;
+                for (int i = 0; i < m.Matches.Length; i++)
+                {
+                    var match = m.Matches[i];
 
-            Console.WriteLine(line.Substring(unmatchedStart));
+                    Console.Write(m.Text.Substring(unmatchedStart, match.Index - unmatchedStart));
+
+                    Console.ForegroundColor = (int)foregroundColor > 7 ? foregroundColor - 8 : foregroundColor + 8;
+                    Console.Write(m.Text.Substring(match.Index, match.Length));
+                    Console.ForegroundColor = foregroundColor;
+
+                    unmatchedStart = match.Index + match.Length;
+                }
+
+                Console.WriteLine(m.Text.Substring(unmatchedStart));
+            },
+            dataflowBlockOptions);
         }
+    }
+
+    public class MatchingLine
+    {
+        public string FilePath { get; set; }
+        public int LineNumber { get; set; }
+        public string Text { get; set; }
+        public MatchSpan[] Matches { get; set; }
+    }
+
+    public struct MatchSpan
+    {
+        public MatchSpan(int index, int length)
+        {
+            Index = index;
+            Length = length;
+        }
+
+        public int Index { get; }
+        public int Length { get; }
     }
 }
