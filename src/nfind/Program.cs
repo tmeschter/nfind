@@ -60,14 +60,17 @@ namespace nfind
                 directories = directories.Concat(Directory.EnumerateDirectories(initialDirectory, "*", SearchOption.AllDirectories));
             }
 
+            // Create the Dataflow blocks
             var fileReaderBlock = GetFileReaderBlock();
-            var matchingBlock = GetMatchesBlock(regex);
-            var outputBlock = GetOutputActionBlock();
+            var matchingBlock = GetMatchBlock(regex);
+            var outputBlock = GetOutputBlock();
 
+            // Link the blocks
             var linkOptions = new DataflowLinkOptions { PropagateCompletion = true };
             fileReaderBlock.LinkTo(matchingBlock, linkOptions);
             matchingBlock.LinkTo(outputBlock, linkOptions);
 
+            // Find the applicable files and pass them to the file reader.
             foreach (var directory in directories)
             {
                 var filePaths = new List<string>();
@@ -83,8 +86,9 @@ namespace nfind
                 }
             }
 
+            // Inform the file reader that there will be no more input, and wait for the output
+            // block to finish.
             fileReaderBlock.Complete();
-
             outputBlock.Completion.Wait();
         }
 
@@ -93,7 +97,7 @@ namespace nfind
             var dataflowBlockOptions = new ExecutionDataflowBlockOptions
             {
                 MaxDegreeOfParallelism = DataflowBlockOptions.Unbounded,
-                NameFormat = "File reader"
+                NameFormat = "File readering"
             };
             return new TransformManyBlock<string, MatchingLine>((Func<string, IEnumerable<MatchingLine>>)GetLines, dataflowBlockOptions);
         }
@@ -114,8 +118,13 @@ namespace nfind
             }
         }
 
-        private static TransformBlock<MatchingLine, MatchingLine> GetMatchesBlock(Regex regex)
+        private static TransformBlock<MatchingLine, MatchingLine> GetMatchBlock(Regex regex)
         {
+            var dataflowBlockOptions = new ExecutionDataflowBlockOptions
+            {
+                MaxDegreeOfParallelism = DataflowBlockOptions.Unbounded,
+                NameFormat = "Matching"
+            };
             return new TransformBlock<MatchingLine, MatchingLine>(line =>
             {
                 line.Matches = regex.Matches(line.Text)
@@ -124,15 +133,15 @@ namespace nfind
                     .ToArray();
                 return line;
             },
-            new ExecutionDataflowBlockOptions
-            {
-                MaxDegreeOfParallelism = DataflowBlockOptions.Unbounded,
-                NameFormat = "Matching"
-            });
+            dataflowBlockOptions);
         }
 
-        private static ActionBlock<MatchingLine> GetOutputActionBlock()
+        private static ActionBlock<MatchingLine> GetOutputBlock()
         {
+            var dataflowBlockOptions = new ExecutionDataflowBlockOptions
+            {
+                NameFormat = "Output"
+            };
             return new ActionBlock<MatchingLine>(m =>
             {
                 if (m.Matches.Length == 0)
@@ -161,10 +170,7 @@ namespace nfind
 
                 Console.WriteLine(m.Text.Substring(unmatchedStart));
             },
-            new ExecutionDataflowBlockOptions
-            {
-                NameFormat = "Output"
-            });
+            dataflowBlockOptions);
         }
     }
 
