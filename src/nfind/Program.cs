@@ -54,12 +54,6 @@ namespace nfind
 
             initialDirectory = Path.GetFullPath(initialDirectory);
 
-            IEnumerable<string> directories = new[] { initialDirectory };
-            if (recurse)
-            {
-                directories = directories.Concat(Directory.EnumerateDirectories(initialDirectory, "*", SearchOption.AllDirectories));
-            }
-
             // Create the Dataflow blocks
             var fileReaderBlock = GetFileReaderBlock();
             var matchingBlock = GetMatchBlock(regex);
@@ -71,19 +65,11 @@ namespace nfind
             matchingBlock.LinkTo(outputBlock, linkOptions);
 
             // Find the applicable files and pass them to the file reader.
-            foreach (var directory in directories)
-            {
-                var filePaths = new List<string>();
-                foreach (var pattern in patterns)
-                {
-                    filePaths.AddRange(Directory.EnumerateFiles(directory, pattern));
-                }
-                filePaths.Sort(StringComparer.CurrentCulture);
+            DirectoryInfo di = new DirectoryInfo(initialDirectory);
 
-                foreach (var filePath in filePaths)
-                {
-                    fileReaderBlock.Post(filePath);
-                }
+            foreach (var matchingFile in GetMatchingFiles(initialDirectory, patterns, recurse))
+            {
+                fileReaderBlock.Post(matchingFile);
             }
 
             // Inform the file reader that there will be no more input, and wait for the output
@@ -92,24 +78,55 @@ namespace nfind
             outputBlock.Completion.Wait();
         }
 
-        private static TransformManyBlock<string, MatchingLine> GetFileReaderBlock()
+        public static IEnumerable<File> GetMatchingFiles(string initialDirectory, IEnumerable<string> patterns, bool recurse)
+        {
+            IEnumerable<string> directories = new[] { initialDirectory };
+            if (recurse)
+            {
+                directories = directories.Concat(Directory.EnumerateDirectories(initialDirectory, "*", SearchOption.AllDirectories));
+            }
+
+            var filePaths = new List<string>();
+            foreach (var directory in directories)
+            {
+                filePaths.Clear();
+
+                foreach (var pattern in patterns)
+                {
+                    filePaths.AddRange(Directory.EnumerateFiles(directory, pattern));
+                }
+                filePaths.Sort(StringComparer.CurrentCulture);
+
+                foreach (var filePath in filePaths)
+                {
+                    var relativeFilePath = filePath.Substring(initialDirectory.Length + 1);
+                    yield return new File
+                    {
+                        SearchDirectory = initialDirectory,
+                        RelativeFilePath = relativeFilePath
+                    };
+                }
+            }
+        }
+
+        private static TransformManyBlock<File, MatchingLine> GetFileReaderBlock()
         {
             var dataflowBlockOptions = new ExecutionDataflowBlockOptions
             {
                 MaxDegreeOfParallelism = DataflowBlockOptions.Unbounded,
                 NameFormat = "File readering"
             };
-            return new TransformManyBlock<string, MatchingLine>((Func<string, IEnumerable<MatchingLine>>)GetLines, dataflowBlockOptions);
+            return new TransformManyBlock<File, MatchingLine>((Func<File, IEnumerable<MatchingLine>>)GetLines, dataflowBlockOptions);
         }
 
-        private static IEnumerable<MatchingLine> GetLines(string filePath)
+        private static IEnumerable<MatchingLine> GetLines(File file)
         {
             int lineNumber = 1;
-            foreach (var line in File.ReadLines(filePath))
+            foreach (var line in System.IO.File.ReadLines(Path.Combine(file.SearchDirectory, file.RelativeFilePath)))
             {
                 yield return new MatchingLine
                 {
-                    FilePath = filePath,
+                    File = file,
                     LineNumber = lineNumber,
                     Text = line
                 };
@@ -151,7 +168,7 @@ namespace nfind
 
                 var foregroundColor = Console.ForegroundColor;
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.Write($"{m.FilePath}, {m.LineNumber}: ");
+                Console.Write($"{m.File.RelativeFilePath}, {m.LineNumber}: ");
                 Console.ForegroundColor = foregroundColor;
 
                 int unmatchedStart = 0;
@@ -174,9 +191,15 @@ namespace nfind
         }
     }
 
-    public class MatchingLine
+    public sealed class File
     {
-        public string FilePath { get; set; }
+        public string SearchDirectory { get; set; }
+        public string RelativeFilePath { get; set; }
+    }
+
+    public sealed class MatchingLine
+    {
+        public File File { get; set; }
         public int LineNumber { get; set; }
         public string Text { get; set; }
         public MatchSpan[] Matches { get; set; }
