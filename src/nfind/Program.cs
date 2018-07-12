@@ -69,7 +69,16 @@ namespace nfind
 
             foreach (var matchingFile in GetMatchingFiles(initialDirectory, patterns, recurse))
             {
-                fileReaderBlock.Post(matchingFile);
+                switch (matchingFile)
+                {
+                    case FileMatch fileMatch:
+                        fileReaderBlock.Post(fileMatch);
+                        break;
+
+                    case FileMatchError fileMatchError:
+                        Console.Error.WriteLine(fileMatchError.ErrorMessage);
+                        break;
+                }
             }
 
             // Inform the file reader that there will be no more input, and wait for the output
@@ -78,12 +87,27 @@ namespace nfind
             outputBlock.Completion.Wait();
         }
 
-        public static IEnumerable<File> GetMatchingFiles(string initialDirectory, IEnumerable<string> patterns, bool recurse)
+        public static IEnumerable<FileMatchResult> GetMatchingFiles(string initialDirectory, IEnumerable<string> patterns, bool recurse)
         {
             IEnumerable<string> directories = new[] { initialDirectory };
             if (recurse)
             {
-                directories = directories.Concat(Directory.EnumerateDirectories(initialDirectory, "*", SearchOption.AllDirectories));
+                FileMatchError error = null;
+
+                try
+                {
+                    directories = directories.Concat(Directory.EnumerateDirectories(initialDirectory, "*", SearchOption.AllDirectories));
+                }
+                catch (Exception e) when (e is IOException || e is System.Security.SecurityException || e is UnauthorizedAccessException)
+                {
+                    error = new FileMatchError { ErrorMessage = $"Unable to search within '{initialDirectory}': {e.Message}" };
+                }
+
+                if (error != null)
+                {
+                    yield return error;
+                    yield break;
+                }
             }
 
             var filePaths = new List<string>();
@@ -100,7 +124,7 @@ namespace nfind
                 foreach (var filePath in filePaths)
                 {
                     var relativeFilePath = filePath.Substring(initialDirectory.Length + 1);
-                    yield return new File
+                    yield return new FileMatch
                     {
                         SearchDirectory = initialDirectory,
                         RelativeFilePath = relativeFilePath
@@ -109,17 +133,17 @@ namespace nfind
             }
         }
 
-        private static TransformManyBlock<File, MatchingLine> GetFileReaderBlock()
+        private static TransformManyBlock<FileMatch, MatchingLine> GetFileReaderBlock()
         {
             var dataflowBlockOptions = new ExecutionDataflowBlockOptions
             {
                 MaxDegreeOfParallelism = DataflowBlockOptions.Unbounded,
                 NameFormat = "File readering"
             };
-            return new TransformManyBlock<File, MatchingLine>((Func<File, IEnumerable<MatchingLine>>)GetLines, dataflowBlockOptions);
+            return new TransformManyBlock<FileMatch, MatchingLine>((Func<FileMatch, IEnumerable<MatchingLine>>)GetLines, dataflowBlockOptions);
         }
 
-        private static IEnumerable<MatchingLine> GetLines(File file)
+        private static IEnumerable<MatchingLine> GetLines(FileMatch file)
         {
             int lineNumber = 1;
             foreach (var line in System.IO.File.ReadLines(Path.Combine(file.SearchDirectory, file.RelativeFilePath)))
@@ -191,15 +215,24 @@ namespace nfind
         }
     }
 
-    public sealed class File
+    public abstract class FileMatchResult
+    {
+    }
+
+    public sealed class FileMatch : FileMatchResult
     {
         public string SearchDirectory { get; set; }
         public string RelativeFilePath { get; set; }
     }
 
+    public sealed class FileMatchError : FileMatchResult
+    {
+        public string ErrorMessage { get; set; }
+    }
+
     public sealed class MatchingLine
     {
-        public File File { get; set; }
+        public FileMatch File { get; set; }
         public int LineNumber { get; set; }
         public string Text { get; set; }
         public MatchSpan[] Matches { get; set; }
